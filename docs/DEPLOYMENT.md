@@ -1,5 +1,13 @@
 # Инфраструктура и деплой
 
+## Статус (11.09.2026): развёрнуто на реальном сервере
+
+`news.skidiscoverer.ru` — VPS `vps.skidi.club` (Debian 13, 4 vCPU/8GB/40GB), Docker + Caddy
+(автоматический HTTPS через Let's Encrypt — закрывает пробел «HTTPS отсутствует», описанный
+ниже 09.09.2026, актуален был до этого деплоя). Код — приватный репозиторий
+`github.com/evgenymoyseenko-bot/skidi_news` (деплой через `git pull`, не rsync — см. п.
+«Обновление» ниже).
+
 ## Требования к серверу (описано 09.09.2026, сервер ещё не арендован и не поднят)
 
 Нагрузка на старте крошечная (11 источников, 3 запроса к GigaChat/день, 4 публикации в
@@ -16,10 +24,9 @@ Telegram/день, несколько писем через UniSender Go) — т
   09.09.2026): 2 vCPU/4GB ≈ 1500₽/мес + IPv4 ≈ 180-200₽/мес ≈ **~1700₽/мес** итого.
 - **Домен**: поддомен под `SITE_BASE_URL` (например `news.skidiscoverer.ru`) — DNS A-запись на
   nic.ru, управление доменом уже там.
-- **HTTPS — отсутствует в текущем docker-compose.yml.** `web` слушает голый HTTP на 8000, ни
-  reverse-proxy (nginx/Caddy), ни TLS-сертификата (Let's Encrypt/certbot) в скелете нет — без
-  этого ссылки в письмах модерации будут `http://`, не `https://`. Добавить перед реальным
-  использованием, не после.
+- **HTTPS — закрыто 11.09.2026.** Добавлен сервис `caddy` (Caddy 2, автоматический HTTPS через
+  Let's Encrypt по одному домену в `Caddyfile`) — `web` больше не публикует порт наружу
+  напрямую, только через Caddy на 80/443. См. таблицу сервисов ниже.
 
 ## Сервисы
 
@@ -28,14 +35,29 @@ Telegram/день, несколько писем через UniSender Go) — т
 | `web` | Django (admin + DRF API), запускается под Gunicorn | Python 3.12-slim + приложение |
 | `worker` | Celery worker — парсинг источников, публикация, уведомления | тот же образ, другая команда |
 | `beat` | Celery beat — расписание (django-celery-beat) | тот же образ, другая команда |
-| `bot` | Telegram-бот участников (`chatbot`, aiogram Dispatcher, long polling) — постоянный процесс, не Celery-таска, см. `ARCHITECTURE.md` | тот же образ, другая команда |
+| `caddy` | Reverse-proxy + автоматический HTTPS (Let's Encrypt) перед `web` | `caddy:2-alpine` |
 | `db` | PostgreSQL | официальный образ `postgres` |
 | `redis` | Брокер задач для Celery | официальный образ `redis` |
 
-Скелет — в `docker-compose.yml` в корне проекта. **Не проверялся реальным запуском** — это
-отправная точка для разработчика, а не готовая к продакшену конфигурация. Перед использованием
-в проде обязательно: зафиксировать версии образов, настроить healthcheck, вынести секреты из
-примера `.env`, настроить `DEBUG=False` и `ALLOWED_HOSTS`.
+`bot` (Telegram-бот участников, `chatbot`, Этап 11 `docs/CODER_INSTRUCTIONS.md`) — закомментирован
+в `docker-compose.yml`, модуль ещё не реализован (`manage.py run_bot` не существует).
+Раскомментировать и включить, когда `chatbot` будет готов.
+
+`docker-compose.yml` в корне проекта — **проверен реальным запуском 11.09.2026** на
+`news.skidiscoverer.ru`. Порт `web` (8000) больше не публикуется наружу напрямую — только через
+`caddy`. Версии образов зафиксированы (`postgres:16`, `redis:7`, `caddy:2-alpine`).
+
+## Обновление (redeploy)
+
+Код деплоится через git, не rsync — репозиторий `github.com/evgenymoyseenko-bot/skidi_news`
+(приватный), на сервере клонирован в `~/skidi_news`, доступ — SSH deploy key
+(`~/.ssh/skidi_news_deploy_key`, read-only к репозиторию). Обновление:
+
+```bash
+cd ~/skidi_news && git pull && docker compose up -d --build
+```
+
+После деплоя с новыми моделями — не забыть `docker compose exec web python manage.py migrate`.
 
 ## Переменные окружения
 

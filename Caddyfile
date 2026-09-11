@@ -1,0 +1,3 @@
+news.skidiscoverer.ru {
+	reverse_proxy web:8000
+}

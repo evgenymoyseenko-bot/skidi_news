@@ -1,7 +1,10 @@
-# Скелет инфраструктуры для локальной разработки / отправной точки деплоя.
-# НЕ ПРОВЕРЯЛСЯ РЕАЛЬНЫМ ЗАПУСКОМ — проверить перед использованием (см. docs/DEPLOYMENT.md).
-# Приложение (Dockerfile, код Django) сюда не входит — это задача разработчика на этапе 0
-# из docs/CODER_INSTRUCTIONS.md. Версии образов зафиксировать самостоятельно на момент старта.
+# Деплой на news.skidiscoverer.ru (11.09.2026) — проверено реальным запуском на VPS
+# (Debian 13, vps.skidi.club). Caddy добавлен как reverse-proxy с автоматическим HTTPS
+# (Let's Encrypt) — этого не было в исходном скелете, docs/DEPLOYMENT.md явно указывал на
+# отсутствие TLS как известный пробел, закрыт при первом реальном деплое.
+#
+# `bot` (chatbot, Этап 11 docs/CODER_INSTRUCTIONS.md) закомментирован — модуль ещё не
+# реализован, `manage.py run_bot` не существует, сервис бы падал в restart-цикле.
 
 services:
   db:
@@ -9,7 +12,7 @@ services:
     environment:
       POSTGRES_DB: gl_news
       POSTGRES_USER: gl_news
-      POSTGRES_PASSWORD: change-me
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - db_data:/var/lib/postgresql/data
     restart: unless-stopped
@@ -25,8 +28,6 @@ services:
     depends_on:
       - db
       - redis
-    ports:
-      - "8000:8000"
     restart: unless-stopped
 
   worker:
@@ -47,13 +48,26 @@ services:
       - redis
     restart: unless-stopped
 
-  bot:
-    build: .
-    command: python manage.py run_bot   # управляющая команда бота — реализовать в модуле chatbot, см. docs/CHATBOT.md
-    env_file: .env
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
-      - db
+      - web
     restart: unless-stopped
+
+  # bot:
+  #   build: .
+  #   command: python manage.py run_bot   # реализовать в модуле chatbot, см. docs/CHATBOT.md — Этап 11, не сделан
+  #   env_file: .env
+  #   depends_on:
+  #     - db
+  #   restart: unless-stopped
 
   # Опционально — мониторинг очереди Celery, см. docs/DEPLOYMENT.md.
   # flower:
@@ -67,3 +81,5 @@ services:
 
 volumes:
   db_data:
+  caddy_data:
+  caddy_config:
