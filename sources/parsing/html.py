@@ -17,6 +17,13 @@ HTML-парсер для source_type='html' (Этап 2, docs/CODER_INSTRUCTIONS
                                  # date_selector (например "datetime" у <time datetime="2026-09-07">
                                  # — ISO, самый надёжный вариант), а не из его текста. Найдено на
                                  # dolina.su при разведке Этапа A, 09.09.2026.
+    "date_selector_detail": "...",  # опционально: если date_selector на листинге ничего не дал —
+                                 # запрос страницы самой статьи, селектор применяется уже там
+                                 # (например ".news-single__date" — найдено на polyanaski.ru,
+                                 # Газпром Поляна, разведка 11.09.2026: без этого источник давал
+                                 # 0 новостей — все карточки отбрасывались как "без даты").
+    "date_detail_attr": "...",  # опционально, пара к date_selector_detail — атрибут вместо текста,
+                                 # как date_attr, но для страницы статьи.
 }
 
 Даты на русскоязычных сайтах курортов обычно текстовые ("8 сентября 2026", без ISO/RFC-формата)
@@ -256,6 +263,23 @@ def _parse_date(raw: str) -> Optional[datetime]:
         return None
 
 
+def _fetch_detail_page_date(url: str, selector: str, attr: Optional[str] = None) -> Optional[datetime]:
+    """Дата есть только на странице самой статьи, не в карточке на листинге (найдено на
+    polyanaski.ru — Газпром Поляна, разведка 11.09.2026: без этого добора ВСЕ записи источника
+    отбрасывались как "без даты = устаревшие" ещё на этапе парсинга списка, до какого-либо
+    дальнейшего обогащения). Отдельный запрос на страницу статьи — параметр `date_selector_detail`
+    в parser_config. Дороже по времени (доп. HTTP-запрос на каждую карточку без даты в листинге),
+    но иначе источник просто не даёт новостей."""
+    try:
+        resp = requests.get(url, headers=REQUEST_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
+        resp.raise_for_status()
+    except Exception:
+        return None
+    tree = lxml_html.fromstring(resp.text)
+    text = _select_one_attr(tree, selector, attr) if attr else _select_one_text(tree, selector)
+    return _parse_date(text or "")
+
+
 def fetch_html(source_url: str, parser_config: dict) -> list[ParsedItem]:
     response = requests.get(source_url, headers=REQUEST_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
     response.raise_for_status()
@@ -284,6 +308,12 @@ def fetch_html(source_url: str, parser_config: dict) -> list[ParsedItem]:
             else _select_one_text(item, date_selector)
         )
         published_at = _parse_date(date_text)
+
+        date_selector_detail = parser_config.get("date_selector_detail")
+        if published_at is None and date_selector_detail:
+            published_at = _fetch_detail_page_date(
+                absolute_url, date_selector_detail, parser_config.get("date_detail_attr")
+            )
 
         if is_too_old(published_at):
             continue
