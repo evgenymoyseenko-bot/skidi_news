@@ -106,6 +106,10 @@ CELERY_TASK_ALWAYS_EAGER = _env_bool("CELERY_TASK_ALWAYS_EAGER", False)
 # --- Telegram: публикация новостей (Этап 5, docs/CODER_INSTRUCTIONS.md) ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHANNEL_ID = os.environ.get("TELEGRAM_CHANNEL_ID", "")
+# Прокси для запросов к Telegram Bot API — найдено 11.09.2026: с реального сервера прямой
+# доступ к IP Telegram блокирован на сетевом уровне выше хостинг-провайдера (см.
+# news/publishing/telegram.py). Пусто — без прокси (напр. для локальной разработки).
+TELEGRAM_PROXY_URL = os.environ.get("TELEGRAM_PROXY_URL", "")
 
 # --- GigaChat: LLM-редактор (Этап 3, docs/TECH_STACK.md п.5а) ---
 GIGACHAT_CREDENTIALS = os.environ.get("GIGACHAT_CREDENTIALS", "")

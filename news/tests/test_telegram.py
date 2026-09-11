@@ -4,7 +4,7 @@ image_url иногда ведёт на мёртвую ссылку или HTML �
 
 from unittest.mock import AsyncMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from news.publishing.telegram import TelegramPublisher
 
@@ -49,3 +49,26 @@ class TelegramPublisherFallbackTests(SimpleTestCase):
 
         self.assertEqual(message_id, "1")
         mock_bot.send_photo.assert_not_called()
+
+
+class TelegramProxyTests(SimpleTestCase):
+    """Найдено 11.09.2026: прямой доступ к Telegram с реального сервера заблокирован на
+    сетевом уровне — TELEGRAM_PROXY_URL должен прокидываться в aiogram.Bot через AiohttpSession."""
+
+    @override_settings(TELEGRAM_PROXY_URL="http://proxy.example.com:23")
+    @patch("aiogram.client.session.aiohttp.AiohttpSession")
+    @patch("aiogram.Bot")
+    def test_proxy_url_passed_to_session_when_set(self, mock_bot_cls, mock_session_cls):
+        publisher = TelegramPublisher(bot_token="test-token")
+        publisher._get_bot()
+
+        mock_session_cls.assert_called_once_with(proxy="http://proxy.example.com:23")
+        mock_bot_cls.assert_called_once_with(token="test-token", session=mock_session_cls.return_value)
+
+    @override_settings(TELEGRAM_PROXY_URL="")
+    @patch("aiogram.Bot")
+    def test_no_proxy_when_not_configured(self, mock_bot_cls):
+        publisher = TelegramPublisher(bot_token="test-token")
+        publisher._get_bot()
+
+        mock_bot_cls.assert_called_once_with(token="test-token", session=None)

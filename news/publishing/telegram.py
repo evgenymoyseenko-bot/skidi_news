@@ -2,6 +2,14 @@
 Клиент публикации в Telegram — aiogram.Bot БЕЗ Dispatcher/polling (Этап 5, docs/TECH_STACK.md
 п.5): только разовые sendMessage/sendPhoto из Celery-таски. sendPhoto, если у новости есть
 image_url, иначе sendMessage — картинка необязательна (см. docs/ARCHITECTURE.md, п.6).
+
+Прокси (TELEGRAM_PROXY_URL) — найдено 11.09.2026 на реальном сервере (news.skidiscoverer.ru):
+прямое TCP-соединение к IP Telegram блокируется на уровне выше хостинг-провайдера (не сам
+провайдер — подтверждено: общий интернет и GitHub с сервера работают нормально, блокированы
+именно IP Telegram, и по IPv4, и IPv6 недоступен). Без прокси sendPhoto/sendMessage зависают на
+таймауте и уходят в retry-цикл, ничего не публикуя. Наш трафик к Telegram крошечный — мы
+передаём в sendPhoto URL картинки, не байты (Telegram сам её скачивает со стороны источника),
+так что через прокси идёт только сам API-запрос (~2-4 КБ на публикацию).
 """
 
 import asyncio
@@ -20,8 +28,11 @@ class TelegramPublisher:
     def _get_bot(self):
         if self._bot is None:
             from aiogram import Bot
+            from aiogram.client.session.aiohttp import AiohttpSession
 
-            self._bot = Bot(token=self._bot_token)
+            proxy_url = getattr(settings, "TELEGRAM_PROXY_URL", "") or None
+            session = AiohttpSession(proxy=proxy_url) if proxy_url else None
+            self._bot = Bot(token=self._bot_token, session=session)
         return self._bot
 
     async def _send_async(self, chat_id: str, text: str, image_url: str | None, parse_mode: str | None) -> str:
