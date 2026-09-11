@@ -37,6 +37,9 @@ django-anymail
 
 # Telegram: публикация новостей (клиент Bot API) и модуль chatbot (Dispatcher/FSM)
 aiogram                    # см. docs/TECH_STACK.md пп.5 и 9
+aiohttp-socks               # нужен aiogram для работы через прокси (TELEGRAM_PROXY_URL) — прямой
+                             # доступ к Telegram с реального сервера заблокирован на сетевом
+                             # уровне выше хостинг-провайдера, см. news/publishing/telegram.py
 
 # Файловое хранилище для документов knowledge_base в продакшене (опционально на старте,
 # см. docs/TECH_STACK.md п.8 — для локальной разработки можно обойтись локальным диском)
