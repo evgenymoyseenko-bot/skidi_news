@@ -1,0 +1,7 @@
+{{ article.edited_title }}
+
+{{ article.edited_post_text }}
+
+Опубликовать: {{ urls.publish }}
+Опубликовать срочно: {{ urls.publish_urgent }}
+Отклонить: {{ urls.reject }}

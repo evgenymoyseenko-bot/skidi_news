@@ -1,0 +1,69 @@
+# Скелет инфраструктуры для локальной разработки / отправной точки деплоя.
+# НЕ ПРОВЕРЯЛСЯ РЕАЛЬНЫМ ЗАПУСКОМ — проверить перед использованием (см. docs/DEPLOYMENT.md).
+# Приложение (Dockerfile, код Django) сюда не входит — это задача разработчика на этапе 0
+# из docs/CODER_INSTRUCTIONS.md. Версии образов зафиксировать самостоятельно на момент старта.
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: gl_news
+      POSTGRES_USER: gl_news
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+
+  web:
+    build: .
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000
+    env_file: .env
+    depends_on:
+      - db
+      - redis
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: celery -A config worker -l info
+    env_file: .env
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  beat:
+    build: .
+    command: celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    env_file: .env
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  bot:
+    build: .
+    command: python manage.py run_bot   # управляющая команда бота — реализовать в модуле chatbot, см. docs/CHATBOT.md
+    env_file: .env
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  # Опционально — мониторинг очереди Celery, см. docs/DEPLOYMENT.md.
+  # flower:
+  #   build: .
+  #   command: celery -A config flower --port=5555
+  #   env_file: .env
+  #   depends_on:
+  #     - redis
+  #   ports:
+  #     - "5555:5555"
+
+volumes:
+  db_data:

@@ -1,0 +1,9 @@
+Еженедельный дайджест — новости без публикации
+
+{% for item in items %}
+{{ item.article.edited_title }}
+Опубликовать: {{ item.urls.publish }}
+Опубликовать срочно: {{ item.urls.publish_urgent }}
+Отклонить: {{ item.urls.reject }}
+
+{% endfor %}

@@ -1,0 +1,44 @@
+# Список зависимостей по названиям — без жёсткой фиксации версий: конкретные версии и их
+# совместимость друг с другом (особенно Django/DRF/Celery) не тестировались вместе, проверить
+# и зафиксировать (pip freeze) на момент старта разработки. Обоснование выбора каждой
+# библиотеки — в docs/TECH_STACK.md.
+
+# Веб-фреймворк
+django>=5.2,<5.3          # LTS, см. docs/TECH_STACK.md п.1
+djangorestframework       # REST API для ЛК, см. docs/INTEGRATION_LK.md
+gunicorn                  # WSGI-сервер для прод-деплоя
+
+# База данных
+psycopg[binary]           # драйвер PostgreSQL
+dj-database-url           # чтение DATABASE_URL из .env
+
+# Фоновые задачи и расписание
+celery
+redis
+django-celery-beat        # периодические задачи, редактируемые в Django admin
+
+# Парсинг источников
+feedparser                 # RSS/Atom
+trafilatura                 # извлечение текста статьи со страницы
+requests
+
+# Дедупликация
+rapidfuzz
+
+# LLM-редактор: GigaChat (тариф для физлица, уровень Pro — см. docs/TECH_STACK.md п.5а).
+# Проверить перед установкой актуальное официальное название/версию пакета на момент старта
+# разработки (не тестировалось) — на 2026 это официальный SDK gigachat с PyPI.
+gigachat
+
+# Email-модерация: подпись ссылок штатным django.core.signing, отдельная библиотека не нужна.
+
+# Telegram: публикация новостей (клиент Bot API) и модуль chatbot (Dispatcher/FSM)
+aiogram                    # см. docs/TECH_STACK.md пп.5 и 9
+
+# Файловое хранилище для документов knowledge_base в продакшене (опционально на старте,
+# см. docs/TECH_STACK.md п.8 — для локальной разработки можно обойтись локальным диском)
+# django-storages
+# boto3
+
+# Опционально (см. docs/DEPLOYMENT.md — мониторинг очереди)
+# flower
