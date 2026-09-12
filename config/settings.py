@@ -111,6 +111,10 @@ TELEGRAM_CHANNEL_ID = os.environ.get("TELEGRAM_CHANNEL_ID", "")
 # news/publishing/telegram.py). Пусто — без прокси (напр. для локальной разработки).
 TELEGRAM_PROXY_URL = os.environ.get("TELEGRAM_PROXY_URL", "")
 
+# --- ЛК: push новостей в publish-news (Supabase Edge Function), см. docs/LK_INTEGRATION_TASK.md ---
+LK_PUBLISH_NEWS_URL = os.environ.get("LK_PUBLISH_NEWS_URL", "")
+LK_NEWS_TOKEN = os.environ.get("LK_NEWS_TOKEN", "")
+
 # --- GigaChat: LLM-редактор (Этап 3, docs/TECH_STACK.md п.5а) ---
 GIGACHAT_CREDENTIALS = os.environ.get("GIGACHAT_CREDENTIALS", "")
 GIGACHAT_SCOPE = os.environ.get("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")

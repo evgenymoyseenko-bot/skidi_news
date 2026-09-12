@@ -20,11 +20,27 @@ class Source(models.Model):
         RSS = "rss", "RSS"
         HTML = "html", "HTML"
 
+    class LkCategory(models.TextChoices):
+        """Категория для карусели новостей ЛК (skidiscoverer.ru/lk) — enum задан на стороне ЛК
+        (таблица news.category, CHECK-констрейнт в lk/backend/schema.sql), продублирован здесь
+        как choices, не общая таблица/FK — два разных проекта, своя БД у каждого (см.
+        docs/LK_INTEGRATION_TASK.md, Задача 1, п.4)."""
+
+        CLUB = "club", "Клуб"
+        WORLD_CUP = "world_cup", "Кубок мира"
+        RESORT_CIS = "resort_cis", "Курорты СНГ"
+        RESORT_ASIA = "resort_asia", "Курорты Азии"
+        RESORT_EUROPE = "resort_europe", "Курорты Европы"
+        RESORT_AMERICAS = "resort_americas", "Курорты Америки"
+
     name = models.CharField(max_length=200)
     source_type = models.CharField(max_length=10, choices=SourceType.choices)
     url = models.URLField(max_length=500)
     default_category = models.ForeignKey(
         Category, null=True, blank=True, on_delete=models.SET_NULL, related_name="sources"
+    )
+    lk_category = models.CharField(
+        max_length=20, choices=LkCategory.choices, default=LkCategory.RESORT_CIS
     )
     # Для html-источников: item_selector/title_selector/link_selector/date_selector/image_selector.
     parser_config = models.JSONField(default=dict, blank=True)

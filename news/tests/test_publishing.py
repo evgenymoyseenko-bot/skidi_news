@@ -155,3 +155,84 @@ class PublishFromQueueTests(TestCase):
         mock_reminder.reset_mock()
         publish_from_queue(check_low_stock=False)
         self.assertFalse(mock_reminder.called)
+
+
+class PublishToLkChannelTests(TestCase):
+    """ЛК — независимый канал (docs/LK_INTEGRATION_TASK.md, Задача 1): ошибка в одном канале
+    не должна мешать другому, ни в одну, ни в другую сторону."""
+
+    def setUp(self):
+        self.telegram_channel = PublishChannel.objects.create(
+            name="Telegram-канал клуба", channel_type=PublishChannel.ChannelType.TELEGRAM, config={"chat_id": "-100"}
+        )
+        self.lk_channel = PublishChannel.objects.create(
+            name="ЛК", channel_type=PublishChannel.ChannelType.LK_API, is_active=True
+        )
+
+    @patch("news.publishing.tasks.push_to_lk")
+    @patch("news.publishing.tasks.TelegramPublisher")
+    def test_lk_push_called_and_logged_on_success(self, mock_publisher_cls, mock_push_to_lk):
+        mock_publisher_cls.return_value.send.return_value = "1"
+        article = _make_approved_article(external_url="https://example.com/1")
+
+        publish_from_queue()
+
+        mock_push_to_lk.assert_called_once_with(article)
+        self.assertEqual(
+            PublicationLog.objects.filter(
+                article=article, channel=self.lk_channel, status=PublicationLog.LogStatus.SUCCESS
+            ).count(),
+            1,
+        )
+
+    @patch("news.publishing.tasks.push_to_lk")
+    @patch("news.publishing.tasks.TelegramPublisher")
+    def test_lk_failure_does_not_block_telegram(self, mock_publisher_cls, mock_push_to_lk):
+        from news.publishing.lk import LkPushError
+
+        mock_push_to_lk.side_effect = LkPushError("boom")
+        mock_publisher_cls.return_value.send.return_value = "999"
+        article = _make_approved_article(external_url="https://example.com/1")
+
+        result = publish_from_queue()
+
+        self.assertEqual(result["published"], [article.id])
+        article.refresh_from_db()
+        self.assertEqual(article.status, Article.Status.PUBLISHED)
+        self.assertEqual(article.telegram_message_id, "999")
+        self.assertEqual(
+            PublicationLog.objects.filter(
+                article=article, channel=self.lk_channel, status=PublicationLog.LogStatus.FAILED
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            PublicationLog.objects.filter(
+                article=article, channel=self.telegram_channel, status=PublicationLog.LogStatus.SUCCESS
+            ).count(),
+            1,
+        )
+
+    @patch("news.publishing.tasks.push_to_lk")
+    @patch("news.publishing.tasks.TelegramPublisher")
+    def test_telegram_failure_does_not_prevent_lk_push(self, mock_publisher_cls, mock_push_to_lk):
+        mock_publisher_cls.return_value.send.side_effect = Exception("telegram down")
+        article = _make_approved_article(external_url="https://example.com/1")
+
+        with self.assertRaises(Exception):
+            publish_from_queue()
+
+        mock_push_to_lk.assert_called_once_with(article)
+
+    @patch("news.publishing.tasks.push_to_lk")
+    def test_lk_only_active_channel_still_publishes(self, mock_push_to_lk):
+        """Если активен только канал ЛК (Telegram выключен) — публикация всё равно идёт, не
+        блокируется общим "нет активных каналов" (было раньше, до Задачи 1)."""
+        self.telegram_channel.is_active = False
+        self.telegram_channel.save()
+        article = _make_approved_article(external_url="https://example.com/1")
+
+        result = publish_from_queue()
+
+        self.assertEqual(result["published"], [article.id])
+        mock_push_to_lk.assert_called_once_with(article)

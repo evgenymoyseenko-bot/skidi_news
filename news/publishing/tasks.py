@@ -14,6 +14,7 @@ from django.utils import timezone
 from news.editor.pipeline import SOURCE_LINE_RE
 from news.models import Article, PublicationLog, PublishChannel
 
+from .lk import LkPushError, push_to_lk
 from .telegram import TelegramPublisher
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,10 @@ def _format_for_telegram(article: Article) -> str:
 
 @shared_task(autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
 def publish_from_queue(check_low_stock: bool = False) -> dict:
-    channels = list(PublishChannel.objects.filter(channel_type=PublishChannel.ChannelType.TELEGRAM, is_active=True))
+    telegram_channels = list(
+        PublishChannel.objects.filter(channel_type=PublishChannel.ChannelType.TELEGRAM, is_active=True)
+    )
+    lk_channels = list(PublishChannel.objects.filter(channel_type=PublishChannel.ChannelType.LK_API, is_active=True))
 
     if check_low_stock:
         # Проверка только на утреннем (06:00 UTC) прогоне — иначе за день напомнили бы дважды
@@ -65,18 +69,39 @@ def publish_from_queue(check_low_stock: bool = False) -> dict:
 
             send_low_stock_reminder(queue_count, DAILY_TARGET)
 
-    if not channels:
+    if not telegram_channels and not lk_channels:
         # Нечего публиковать без активного канала — оставляем очередь как есть, а не помечаем
         # записи published без единой реальной отправки (нарушило бы аудит PublicationLog).
-        logger.warning("Нет активных Telegram-каналов (PublishChannel) — публикация пропущена.")
+        logger.warning("Нет активных каналов публикации (PublishChannel) — публикация пропущена.")
         return {"published": [], "reason": "no_active_channels"}
 
     batch = list(_publication_queue()[:BATCH_SIZE])
     published_ids = []
 
     for article in batch:
+        # ЛК — первым: независимый канал (docs/LK_INTEGRATION_TASK.md, Задача 1, п.5), ошибка
+        # здесь не должна помешать Telegram и наоборот. Telegram-ветка ниже при неудаче делает
+        # `raise` (уходит в retry всей таски) — если бы ЛК шёл после неё, при таком raise пуш в
+        # ЛК для этой статьи вообще не случился бы в этом прогоне. Пробуем ЛК до Telegram, чтобы
+        # это не зависело от порядка/исхода другого канала.
+        for channel in lk_channels:
+            try:
+                push_to_lk(article)
+            except LkPushError as exc:
+                logger.exception("Публикация в ЛК не удалась: article=%s channel=%s", article.id, channel.id)
+                PublicationLog.objects.create(
+                    article=article,
+                    channel=channel,
+                    status=PublicationLog.LogStatus.FAILED,
+                    response_snippet=str(exc),
+                )
+            else:
+                PublicationLog.objects.create(
+                    article=article, channel=channel, status=PublicationLog.LogStatus.SUCCESS
+                )
+
         text = _format_for_telegram(article)
-        for channel in channels:
+        for channel in telegram_channels:
             chat_id = channel.config.get("chat_id", settings.TELEGRAM_CHANNEL_ID)
             try:
                 message_id = TelegramPublisher().send(chat_id, text, article.image_url or None)

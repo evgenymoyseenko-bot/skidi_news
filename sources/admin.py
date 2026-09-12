@@ -14,12 +14,13 @@ class SourceAdmin(admin.ModelAdmin):
     list_display = (
         "name",
         "source_type",
+        "lk_category",
         "is_active",
         "parse_interval_minutes",
         "last_parsed_at",
         "last_parse_status",
     )
-    list_filter = ("source_type", "is_active", "last_parse_status")
+    list_filter = ("source_type", "lk_category", "is_active", "last_parse_status")
     readonly_fields = ("last_parsed_at", "last_parse_status", "last_parse_error")
     actions = ["run_parsing_now"]
 
