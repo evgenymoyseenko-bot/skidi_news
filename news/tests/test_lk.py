@@ -49,6 +49,20 @@ class FormatBodyForLkTests(TestCase):
         article = _make_article(edited_post_text="")
         self.assertEqual(format_body_for_lk(article), "")
 
+    def test_single_line_body_without_title_prefix_is_not_swallowed(self):
+        """Реальный баг, найден 13.09.2026 на реальной публикации через форму ручного ввода без
+        LLM-форматирования: edited_post_text там — просто текст модератора БЕЗ отдельной строки
+        заголовка (в отличие от GigaChat, который всегда добавляет "*Заголовок*" первой строкой).
+        Старое безусловное `lines[1:]` съедало единственную строку текста целиком → пустой body
+        → publish-news отвечал 400 "title и body обязательны", новость реально не долетела до
+        ЛК (Telegram при этом ушёл, PublicationLog это подтвердил)."""
+        article = _make_article(
+            edited_title="Собрание клуба",
+            edited_post_text="В субботу встречаемся в 10:00 у подъёмника.",
+        )
+        body = format_body_for_lk(article)
+        self.assertEqual(body, "В субботу встречаемся в 10:00 у подъёмника.")
+
 
 class PushToLkTests(TestCase):
     @patch("news.publishing.lk.requests.post")

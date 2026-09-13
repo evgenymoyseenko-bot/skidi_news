@@ -49,14 +49,21 @@ def format_body_for_lk(article: Article) -> str:
     """`edited_post_text` собран для Telegram (заголовок первой строкой, хэштеги в конце,
     строка "Источник: <url>" для сопоставления с картинкой — см. news/editor/pipeline.py). Для
     ЛК нужен только сам текст поста: заголовок и источник уже уходят отдельными полями
-    (title/source_name/source_url), хэштеги — telegram-специфика, не нужны на карточке сайта."""
+    (title/source_name/source_url), хэштеги — telegram-специфика, не нужны на карточке сайта.
+
+    Первая строка отбрасывается, только если совпадает с `edited_title` — баг найден
+    13.09.2026 на форме ручной публикации без LLM-форматирования: там `edited_post_text` НЕ
+    содержит отдельной строки-заголовка (это просто текст модератора), безусловное отбрасывание
+    первой строки съедало единственную строку текста целиком → пустой `body` → `publish-news`
+    отвечал 400 "title и body обязательны" (см. news/publishing/tasks.py, тот же фикс для
+    _format_for_telegram, там же подробное объяснение)."""
     from news.editor.pipeline import SOURCE_LINE_RE
 
     text = article.edited_post_text or ""
     lines = text.splitlines()
 
-    if lines:
-        lines = lines[1:]  # заголовок — уже в title, здесь не нужен
+    if lines and lines[0].strip().strip("*").strip() == (article.edited_title or "").strip():
+        lines = lines[1:]
 
     body_lines = []
     for line in lines:
@@ -69,4 +76,10 @@ def format_body_for_lk(article: Article) -> str:
             continue
         body_lines.append(stripped.strip("*"))
 
-    return "\n".join(body_lines).strip()
+    body = "\n".join(body_lines).strip()
+    if not body:
+        # Защита от пустого body → publish-news отвечает 400 (см. докстринг выше про
+        # найденный баг) — если фильтрация выше всё-таки съела всё (неучтённый формат
+        # edited_post_text), лучше отправить как есть, чем не отправить новость вовсе.
+        body = (article.edited_post_text or "").strip()
+    return body

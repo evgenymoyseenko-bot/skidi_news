@@ -37,6 +37,7 @@ class FormatForTelegramTests(TestCase):
             source=source,
             external_url="https://rosakhutor.ru/news/1",
             title="Заголовок",
+            edited_title="Пост",
             edited_post_text="*Пост*\nТекст поста.\nИсточник: https://rosakhutor.ru/news/1",
         )
         result = _format_for_telegram(article)
@@ -51,6 +52,7 @@ class FormatForTelegramTests(TestCase):
             source=source,
             external_url="https://rosakhutor.ru/news/2",
             title="Заголовок",
+            edited_title="Крупный трейловый фестиваль",
             edited_post_text="*Крупный трейловый фестиваль*\nТекст поста.\nИсточник: https://rosakhutor.ru/news/2",
         )
         result = _format_for_telegram(article)
@@ -63,6 +65,7 @@ class FormatForTelegramTests(TestCase):
             source=source,
             external_url="https://rosakhutor.ru/news/3",
             title="Заголовок",
+            edited_title="Заголовок",
             edited_post_text="*Заголовок*\nЦены < 5% & > 10%.\nИсточник: https://rosakhutor.ru/news/3",
         )
         result = _format_for_telegram(article)
@@ -72,6 +75,24 @@ class FormatForTelegramTests(TestCase):
         source = Source.objects.create(name="Роза Хутор", source_type=Source.SourceType.HTML, url="https://example.com")
         article = Article.objects.create(source=source, external_url="https://example.com/x", title="Заголовок")
         self.assertEqual(_format_for_telegram(article), "Заголовок")
+
+    def test_single_line_body_without_title_prefix_is_not_swallowed(self):
+        """Реальный баг, найден 13.09.2026 на форме ручной публикации без LLM-форматирования:
+        там edited_post_text — это просто текст модератора, БЕЗ отдельной строки-заголовка
+        первой строкой (в отличие от текста GigaChat, который всегда начинается с "*Заголовок*").
+        Старый код `text.partition("\\n")` безусловно брал первую (и тут единственную) строку за
+        заголовок — весь текст новости пропадал из тела поста. Тело не должно теряться, если
+        edited_title и первая строка edited_post_text — разные вещи."""
+        source = Source.objects.create(name="SkiDiscoverer Club", source_type=Source.SourceType.MANUAL, url="https://example.com")
+        article = Article.objects.create(
+            source=source,
+            external_url="https://example.com/club/1",
+            title="Собрание клуба",
+            edited_title="Собрание клуба",
+            edited_post_text="В субботу встречаемся в 10:00 у подъёмника.",
+        )
+        result = _format_for_telegram(article)
+        self.assertEqual(result, "<b>Собрание клуба</b>\nВ субботу встречаемся в 10:00 у подъёмника.")
 
 
 class PublishFromQueueTests(TestCase):

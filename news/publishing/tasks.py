@@ -41,16 +41,26 @@ def _format_for_telegram(article: Article) -> str:
     (найдено 10.09.2026 на реальной публикации: без parse_mode `*звёздочки*` от GigaChat
     печатаются буквально, не форматируются). HTML, не legacy Markdown — safer: тело поста не
     парсится на разметку вообще (просто экранируется), падает только заголовок, если в нём
-    что-то пойдёт не так, а не всё сообщение целиком на случайном `_`/`*` в тексте статьи."""
-    text = article.edited_post_text or article.title
+    что-то пойдёт не так, а не всё сообщение целиком на случайном `_`/`*` в тексте статьи.
+
+    Заголовок берётся из `edited_title`, а НЕ парсингом первой строки `edited_post_text`
+    (баг найден 13.09.2026 на форме ручной публикации без LLM-форматирования — там
+    `edited_post_text` не содержит отдельной строки-заголовка вообще, это просто текст
+    модератора, и старый код `text.partition("\n")` превращал ВЕСЬ текст в жирный "заголовок"
+    без тела). Первая строка `edited_post_text` отбрасывается, только если совпадает с
+    `edited_title` (это тот случай, когда GigaChat/```_extract_title``` уже продублировал её
+    туда как первую строку поста) — иначе она часть тела, не заголовок."""
     if not article.edited_post_text:
-        return html.escape(text)
+        return html.escape(article.title)
 
-    text = SOURCE_LINE_RE.sub(f"Источник: {article.source.name}", text)
+    text = SOURCE_LINE_RE.sub(f"Источник: {article.source.name}", article.edited_post_text)
+    lines = text.splitlines()
+    if lines and lines[0].strip().strip("*").strip() == (article.edited_title or "").strip():
+        lines = lines[1:]
+    rest = "\n".join(lines).strip()
 
-    title_line, _, rest = text.partition("\n")
-    title_line = title_line.strip().strip("*").strip()
-    return f"<b>{html.escape(title_line)}</b>\n{html.escape(rest)}"
+    title = article.edited_title or article.title
+    return f"<b>{html.escape(title)}</b>\n{html.escape(rest)}"
 
 
 def _active_channels() -> tuple[list[PublishChannel], list[PublishChannel]]:
