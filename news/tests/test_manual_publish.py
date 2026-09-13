@@ -1,11 +1,14 @@
 """Тесты формы срочной ручной публикации новости Клуба (13.09.2026) —
 news/moderation/manual_publish.py, news/editor/tasks.py::run_editor_for_manual_article."""
 
+from io import BytesIO
 from unittest.mock import patch
 
 from django.core import signing
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from PIL import Image
 
 from news.editor.pipeline import EditorPost
 from news.editor.tasks import run_editor_for_manual_article
@@ -13,6 +16,14 @@ from news.models import Article, PublicationLog, PublishChannel
 from news.moderation.manual_publish import CLUB_SOURCE_NAME
 from news.moderation.tokens import make_manual_publish_token, read_manual_publish_token
 from sources.models import Source
+
+
+def _make_uploaded_image(*, width=4000, height=3000, fmt="JPEG", name="photo.jpg", content_type="image/jpeg"):
+    """Большая картинка (по умолчанию 4000x3000 — как типичное фото с телефона) для проверки,
+    что форма её пересжимает под лимит Telegram sendPhoto по URL, найдено 13.09.2026."""
+    buffer = BytesIO()
+    Image.new("RGB", (width, height), color="red").save(buffer, format=fmt)
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type=content_type)
 
 
 class ManualPublishTokenTests(TestCase):
@@ -90,6 +101,53 @@ class ManualPublishFormViewTests(TestCase):
         self.assertTrue(article.is_urgent)
         self.assertEqual(article.edited_post_text, "")
         mock_delay.assert_called_once_with(article.id)
+
+    @patch("news.publishing.tasks.TelegramPublisher")
+    def test_uploaded_photo_is_resized_under_telegram_url_limit(self, mock_publisher_cls):
+        """Регрессия 13.09.2026: реальное фото с телефона (11 МБ, ~4000x3000) Telegram
+        отказался скачивать по URL ("failed to get HTTP URL content", лимит ~5 МБ) —
+        публикация тихо ушла без картинки. Проверяем, что сохранённый файл укладывается в
+        разумный размер, а не то, что Telegram его примет (это не юнит-тестируется)."""
+        mock_publisher_cls.return_value.send.return_value = "1"
+        image = _make_uploaded_image(width=4000, height=3000)
+
+        response = self.client.post(
+            self.url,
+            {
+                "title": "Собрание клуба",
+                "content": "В субботу встречаемся в 10:00.",
+                "skip_llm_formatting": "1",
+                "image": image,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+
+        article = Article.objects.get(title="Собрание клуба")
+        self.assertTrue(article.image_url)
+
+        from django.core.files.storage import default_storage
+
+        stored_name = article.image_url.rsplit("/", 1)[-1]
+        stored_path = f"club-news/{stored_name}"
+        self.assertTrue(default_storage.exists(stored_path))
+        self.assertLess(default_storage.size(stored_path), 2 * 1024 * 1024)
+
+        with default_storage.open(stored_path) as f:
+            resized = Image.open(f)
+            resized.load()
+        self.assertLessEqual(max(resized.size), 1600)
+
+    def test_non_image_upload_rerenders_form_with_error(self):
+        bogus = SimpleUploadedFile("not-a-photo.jpg", b"this is not an image", content_type="image/jpeg")
+
+        response = self.client.post(
+            self.url,
+            {"title": "Собрание клуба", "content": "Текст.", "skip_llm_formatting": "1", "image": bogus},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Не удалось обработать фото")
+        self.assertEqual(Article.objects.count(), 0)
 
     def test_two_submissions_do_not_duplicate_club_source(self):
         """Source "SkiDiscoverer Club" уже заведён data-миграцией (0004_club_source.py) — здесь

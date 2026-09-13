@@ -12,14 +12,17 @@
 """
 
 import uuid
+from io import BytesIO
 
 from django.conf import settings
 from django.core import signing
+from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.http import HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from news.models import Article
 from sources.models import Source
@@ -27,6 +30,26 @@ from sources.models import Source
 from .tokens import read_manual_publish_token
 
 CLUB_SOURCE_NAME = "SkiDiscoverer Club"
+
+# Telegram sendPhoto по URL отказывается качать файлы больше ~5 МБ (news/publishing/telegram.py:
+# найдено 13.09.2026 — 11-мегабайтное фото с телефона Telegram молча не скачал, публикация тихо
+# ушла без картинки через fallback на sendMessage). Пересжимаем под разумный размер карточки —
+# заведомо укладывается в лимит и с большим запасом.
+_IMAGE_MAX_DIMENSION = 1600
+_IMAGE_JPEG_QUALITY = 85
+
+
+def _process_uploaded_image(image) -> ContentFile:
+    img = Image.open(image)
+    img = ImageOps.exif_transpose(img)  # сохраняем реальную ориентацию с телефона при пересжатии
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    img.thumbnail((_IMAGE_MAX_DIMENSION, _IMAGE_MAX_DIMENSION), Image.LANCZOS)
+
+    buffer = BytesIO()
+    img.save(buffer, format="JPEG", quality=_IMAGE_JPEG_QUALITY, optimize=True)
+    buffer.seek(0)
+    return ContentFile(buffer.read())
 
 _ERROR_PAGE_TEMPLATE = """<!doctype html><html><head><meta charset="utf-8">
 <title>{title}</title></head><body style="font-family:sans-serif;max-width:640px;margin:40px auto;">
@@ -76,7 +99,20 @@ def manual_publish_form(request, token: str) -> HttpResponse:
 
     image_url = ""
     if image:
-        saved_name = default_storage.save(f"club-news/{uuid.uuid4()}-{image.name}", image)
+        try:
+            processed_image = _process_uploaded_image(image)
+        except UnidentifiedImageError:
+            return render(
+                request,
+                "moderation/manual_publish_form.html",
+                {
+                    "token": token,
+                    "error": "Не удалось обработать фото — убедитесь, что это картинка (JPEG/PNG).",
+                    "title": title,
+                    "content": content,
+                },
+            )
+        saved_name = default_storage.save(f"club-news/{uuid.uuid4()}.jpg", processed_image)
         image_url = settings.SITE_BASE_URL.rstrip("/") + settings.MEDIA_URL + saved_name
 
     article = Article.objects.create(

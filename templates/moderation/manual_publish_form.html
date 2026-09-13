@@ -14,6 +14,14 @@
     button { margin-top: 24px; padding: 10px 24px; font-size: 16px; background: #2e7d32; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
     .error { color: #c62828; font-weight: 600; }
     .hint { color: #666; font-size: 14px; margin-top: 4px; }
+    .dropzone {
+      margin-top: 4px; border: 2px dashed #bbb; border-radius: 6px; padding: 24px;
+      text-align: center; color: #666; cursor: pointer; transition: border-color .15s, background .15s;
+    }
+    .dropzone.dragover { border-color: #2e7d32; background: #f1f8f1; color: #2e7d32; }
+    .dropzone input[type="file"] { display: none; }
+    .dropzone .filename { margin-top: 8px; font-weight: 600; color: #333; }
+    .dropzone .preview { margin-top: 12px; max-width: 100%; max-height: 220px; border-radius: 4px; display: none; }
   </style>
 </head>
 <body>
@@ -32,7 +40,12 @@
     <textarea id="content" name="content" required>{{ content|default:'' }}</textarea>
 
     <label for="image">Фото (необязательно)</label>
-    <input type="file" id="image" name="image" accept="image/*">
+    <div class="dropzone" id="dropzone">
+      <div id="dropzone-text">Перетащите фото сюда или нажмите, чтобы выбрать файл</div>
+      <div class="filename" id="dropzone-filename"></div>
+      <img class="preview" id="dropzone-preview" alt="">
+      <input type="file" id="image" name="image" accept="image/*">
+    </div>
 
     <label class="checkbox-row">
       <input type="checkbox" name="skip_llm_formatting" value="1">
@@ -41,5 +54,55 @@
 
     <button type="submit">Опубликовать срочно</button>
   </form>
+
+  <script>
+    (function () {
+      var dropzone = document.getElementById('dropzone');
+      var input = document.getElementById('image');
+      var text = document.getElementById('dropzone-text');
+      var filename = document.getElementById('dropzone-filename');
+      var preview = document.getElementById('dropzone-preview');
+
+      function showFile(file) {
+        if (!file) return;
+        text.textContent = 'Перетащите другое фото сюда или нажмите, чтобы заменить';
+        filename.textContent = file.name;
+        if (file.type && file.type.indexOf('image/') === 0) {
+          preview.src = URL.createObjectURL(file);
+          preview.style.display = 'block';
+        }
+      }
+
+      dropzone.addEventListener('click', function () { input.click(); });
+      input.addEventListener('change', function () {
+        if (input.files && input.files[0]) showFile(input.files[0]);
+      });
+
+      ['dragenter', 'dragover'].forEach(function (evt) {
+        dropzone.addEventListener(evt, function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          dropzone.classList.add('dragover');
+        });
+      });
+      ['dragleave', 'dragend'].forEach(function (evt) {
+        dropzone.addEventListener(evt, function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          dropzone.classList.remove('dragover');
+        });
+      });
+      dropzone.addEventListener('drop', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.remove('dragover');
+        var files = e.dataTransfer && e.dataTransfer.files;
+        if (files && files[0]) {
+          input.files = files;
+          showFile(files[0]);
+        }
+      });
+    })();
+  </script>
 </body>
 </html>
