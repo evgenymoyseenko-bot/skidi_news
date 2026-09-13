@@ -35,13 +35,38 @@ class TelegramPublisher:
             self._bot = Bot(token=self._bot_token, session=session)
         return self._bot
 
+    def _local_media_photo(self, image_url: str):
+        """Если image_url — наша собственная ссылка /media/... (фото, загруженное через форму
+        срочной публикации, news/moderation/manual_publish.py), а не внешняя ссылка от
+        источника-парсера — возвращает aiogram BufferedInputFile с байтами файла, иначе None.
+
+        Найдено 13.09.2026: sendPhoto по URL нашего домена стабильно падает с "failed to get
+        HTTP URL content" (проверено на файле 229 КБ — не вопрос размера), при этом фото с
+        внешних сайтов-источников через тот же sendPhoto доходят нормально. Похоже на тот же
+        сетевой блок, что и с исходящими соединениями (см. docstring класса) — только в обратную
+        сторону: сервера Telegram не могут достучаться до нашего VPS, чтобы скачать картинку.
+        Раз наше собственное исходящее соединение до Telegram уже работает (через
+        TELEGRAM_PROXY_URL), для локальных фото загружаем байты сами и передаём их напрямую,
+        а не просим Telegram скачать файл со своей стороны."""
+        prefix = settings.SITE_BASE_URL.rstrip("/") + settings.MEDIA_URL
+        if not image_url.startswith(prefix):
+            return None
+
+        from aiogram.types import BufferedInputFile
+        from django.core.files.storage import default_storage
+
+        relative_path = image_url[len(prefix) :]
+        with default_storage.open(relative_path, "rb") as f:
+            return BufferedInputFile(f.read(), filename=relative_path.rsplit("/", 1)[-1])
+
     async def _send_async(self, chat_id: str, text: str, image_url: str | None, parse_mode: str | None) -> str:
         from aiogram.exceptions import TelegramBadRequest
 
         bot = self._get_bot()
         if image_url:
+            photo = self._local_media_photo(image_url) or image_url
             try:
-                message = await bot.send_photo(chat_id=chat_id, photo=image_url, caption=text, parse_mode=parse_mode)
+                message = await bot.send_photo(chat_id=chat_id, photo=photo, caption=text, parse_mode=parse_mode)
                 return str(message.message_id)
             except TelegramBadRequest as exc:
                 # Найдено 10.09.2026 на реальной публикации: image_url из парсера иногда
