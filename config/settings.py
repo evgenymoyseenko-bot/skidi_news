@@ -29,6 +29,16 @@ ALLOWED_HOSTS = [h.strip() for h in os.environ.get("ALLOWED_HOSTS", "localhost,1
 # домен/поддомен бэкенда, не skidiscoverer.ru (лендинг на Тильде).
 SITE_BASE_URL = os.environ.get("SITE_BASE_URL", "http://localhost:8000")
 
+# Caddy — реверс-прокси, сам добавляет X-Forwarded-Proto (стандартное поведение Caddy
+# reverse_proxy). Без этой настройки Django считает каждый запрос HTTP (не видит, что снаружи
+# HTTPS) и CSRF-проверка origin для POST-форм отбивает реальные HTTPS-запросы браузера как
+# "чужой origin" — найдено 13.09.2026 на форме срочной ручной публикации (первая публичная
+# POST-форма в проекте; moderation_action — GET, поэтому баг раньше не проявлялся).
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+CSRF_TRUSTED_ORIGINS = [
+    o.strip() for o in os.environ.get("CSRF_TRUSTED_ORIGINS", SITE_BASE_URL).split(",") if o.strip()
+]
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
