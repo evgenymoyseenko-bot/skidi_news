@@ -94,6 +94,11 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+# Картинка из формы ручной публикации (news/moderation/manual_publish.py, 13.09.2026) —
+# единственное место в проекте, где мы сами храним загруженный файл (везде ещё image_url —
+# внешняя ссылка на источник). Обслуживается Caddy напрямую с общего volume, см. Caddyfile.
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- Celery / Redis ---

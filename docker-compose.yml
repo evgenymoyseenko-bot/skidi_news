@@ -25,6 +25,8 @@ services:
     build: .
     command: gunicorn config.wsgi:application --bind 0.0.0.0:8000
     env_file: .env
+    volumes:
+      - media_data:/app/media
     depends_on:
       - db
       - redis
@@ -57,6 +59,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      - media_data:/media:ro
     depends_on:
       - web
     restart: unless-stopped
@@ -83,3 +86,4 @@ volumes:
   db_data:
   caddy_data:
   caddy_config:
+  media_data:

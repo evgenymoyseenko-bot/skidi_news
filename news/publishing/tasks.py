@@ -53,12 +53,67 @@ def _format_for_telegram(article: Article) -> str:
     return f"<b>{html.escape(title_line)}</b>\n{html.escape(rest)}"
 
 
-@shared_task(autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
-def publish_from_queue(check_low_stock: bool = False) -> dict:
+def _active_channels() -> tuple[list[PublishChannel], list[PublishChannel]]:
     telegram_channels = list(
         PublishChannel.objects.filter(channel_type=PublishChannel.ChannelType.TELEGRAM, is_active=True)
     )
     lk_channels = list(PublishChannel.objects.filter(channel_type=PublishChannel.ChannelType.LK_API, is_active=True))
+    return telegram_channels, lk_channels
+
+
+def publish_article_now(
+    article: Article, telegram_channels: list[PublishChannel], lk_channels: list[PublishChannel]
+) -> None:
+    """Публикует ОДНУ статью во все переданные активные каналы немедленно — переиспользуется и
+    батчем из `publish_from_queue` (см. ниже), и немедленной публикацией ручных новостей Клуба
+    (news/moderation/manual_publish.py, 13.09.2026, минуя расписание/очередь целиком). Меняет
+    статус на PUBLISHED и сохраняет `article` сама — вызывающий код это не делает повторно."""
+    # ЛК — первым: независимый канал (docs/LK_INTEGRATION_TASK.md, Задача 1, п.5), ошибка здесь
+    # не должна помешать Telegram и наоборот. Telegram-ветка ниже при неудаче делает `raise`
+    # (уходит в retry — для batch-таски; при немедленной публикации из формы вызывающий код сам
+    # решает, что делать с исключением) — если бы ЛК шёл после неё, при таком raise пуш в ЛК для
+    # этой статьи вообще не случился бы в этом прогоне. Пробуем ЛК до Telegram, чтобы это не
+    # зависело от порядка/исхода другого канала.
+    for channel in lk_channels:
+        try:
+            push_to_lk(article)
+        except LkPushError as exc:
+            logger.exception("Публикация в ЛК не удалась: article=%s channel=%s", article.id, channel.id)
+            PublicationLog.objects.create(
+                article=article,
+                channel=channel,
+                status=PublicationLog.LogStatus.FAILED,
+                response_snippet=str(exc),
+            )
+        else:
+            PublicationLog.objects.create(article=article, channel=channel, status=PublicationLog.LogStatus.SUCCESS)
+
+    text = _format_for_telegram(article)
+    for channel in telegram_channels:
+        chat_id = channel.config.get("chat_id", settings.TELEGRAM_CHANNEL_ID)
+        try:
+            message_id = TelegramPublisher().send(chat_id, text, article.image_url or None)
+        except Exception as exc:
+            logger.exception("Публикация в Telegram не удалась: article=%s channel=%s", article.id, channel.id)
+            PublicationLog.objects.create(
+                article=article,
+                channel=channel,
+                status=PublicationLog.LogStatus.FAILED,
+                response_snippet=str(exc),
+            )
+            raise
+        else:
+            article.telegram_message_id = message_id
+            PublicationLog.objects.create(article=article, channel=channel, status=PublicationLog.LogStatus.SUCCESS)
+
+    article.status = Article.Status.PUBLISHED
+    article.published_at = timezone.now()
+    article.save(update_fields=["status", "published_at", "telegram_message_id"])
+
+
+@shared_task(autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
+def publish_from_queue(check_low_stock: bool = False) -> dict:
+    telegram_channels, lk_channels = _active_channels()
 
     if check_low_stock:
         # Проверка только на утреннем (06:00 UTC) прогоне — иначе за день напомнили бы дважды
@@ -79,50 +134,7 @@ def publish_from_queue(check_low_stock: bool = False) -> dict:
     published_ids = []
 
     for article in batch:
-        # ЛК — первым: независимый канал (docs/LK_INTEGRATION_TASK.md, Задача 1, п.5), ошибка
-        # здесь не должна помешать Telegram и наоборот. Telegram-ветка ниже при неудаче делает
-        # `raise` (уходит в retry всей таски) — если бы ЛК шёл после неё, при таком raise пуш в
-        # ЛК для этой статьи вообще не случился бы в этом прогоне. Пробуем ЛК до Telegram, чтобы
-        # это не зависело от порядка/исхода другого канала.
-        for channel in lk_channels:
-            try:
-                push_to_lk(article)
-            except LkPushError as exc:
-                logger.exception("Публикация в ЛК не удалась: article=%s channel=%s", article.id, channel.id)
-                PublicationLog.objects.create(
-                    article=article,
-                    channel=channel,
-                    status=PublicationLog.LogStatus.FAILED,
-                    response_snippet=str(exc),
-                )
-            else:
-                PublicationLog.objects.create(
-                    article=article, channel=channel, status=PublicationLog.LogStatus.SUCCESS
-                )
-
-        text = _format_for_telegram(article)
-        for channel in telegram_channels:
-            chat_id = channel.config.get("chat_id", settings.TELEGRAM_CHANNEL_ID)
-            try:
-                message_id = TelegramPublisher().send(chat_id, text, article.image_url or None)
-            except Exception as exc:
-                logger.exception("Публикация в Telegram не удалась: article=%s channel=%s", article.id, channel.id)
-                PublicationLog.objects.create(
-                    article=article,
-                    channel=channel,
-                    status=PublicationLog.LogStatus.FAILED,
-                    response_snippet=str(exc),
-                )
-                raise
-            else:
-                article.telegram_message_id = message_id
-                PublicationLog.objects.create(
-                    article=article, channel=channel, status=PublicationLog.LogStatus.SUCCESS
-                )
-
-        article.status = Article.Status.PUBLISHED
-        article.published_at = timezone.now()
-        article.save(update_fields=["status", "published_at", "telegram_message_id"])
+        publish_article_now(article, telegram_channels, lk_channels)
         published_ids.append(article.id)
 
     return {"published": published_ids}

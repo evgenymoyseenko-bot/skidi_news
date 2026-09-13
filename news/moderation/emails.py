@@ -11,7 +11,7 @@ from django.urls import reverse
 
 from news.models import Article
 
-from .tokens import make_token
+from .tokens import make_manual_publish_token, make_token
 
 
 def _action_urls(article: Article) -> dict:
@@ -23,8 +23,15 @@ def _action_urls(article: Article) -> dict:
     }
 
 
+def _manual_publish_url() -> str:
+    """Ссылка на форму срочной ручной публикации новости Клуба (13.09.2026) — не привязана к
+    конкретной статье, добавляется в каждое письмо модератору, см. news/moderation/manual_publish.py."""
+    base = settings.SITE_BASE_URL.rstrip("/")
+    return base + reverse("moderation:manual_publish", args=[make_manual_publish_token()])
+
+
 def send_moderation_email(article: Article) -> None:
-    context = {"article": article, "urls": _action_urls(article)}
+    context = {"article": article, "urls": _action_urls(article), "manual_publish_url": _manual_publish_url()}
     html_body = render_to_string("emails/moderation_single.html", context)
     text_body = render_to_string("emails/moderation_single.txt", context)
 
@@ -42,7 +49,7 @@ def send_requeue_digest(articles: list[Article]) -> None:
     if not articles:
         return
     items = [{"article": a, "urls": _action_urls(a)} for a in articles]
-    context = {"items": items}
+    context = {"items": items, "manual_publish_url": _manual_publish_url()}
     html_body = render_to_string("emails/moderation_digest.html", context)
     text_body = render_to_string("emails/moderation_digest.txt", context)
 
@@ -63,7 +70,7 @@ def send_low_stock_reminder(queue_count: int, needed: int) -> None:
         subject="[Публикация] Не хватает материала в очереди",
         body=(
             f"В очереди публикации {queue_count} новостей, а на сегодня нужно {needed}. "
-            "Можно опубликовать что-то своё вручную в Telegram-канал."
+            f"Можно опубликовать что-то своё вручную: {_manual_publish_url()}"
         ),
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[settings.MODERATION_EMAIL_TO],

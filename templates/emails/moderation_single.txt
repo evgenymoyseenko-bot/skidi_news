@@ -5,3 +5,5 @@
 Опубликовать: {{ urls.publish }}
 Опубликовать срочно: {{ urls.publish_urgent }}
 Отклонить: {{ urls.reject }}
+
+Есть срочная новость Клуба не из этого списка? {{ manual_publish_url }}

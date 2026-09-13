@@ -19,6 +19,7 @@ class Source(models.Model):
     class SourceType(models.TextChoices):
         RSS = "rss", "RSS"
         HTML = "html", "HTML"
+        MANUAL = "manual", "Ручной ввод (модератор)"
 
     class LkCategory(models.TextChoices):
         """Категория для карусели новостей ЛК (skidiscoverer.ru/lk) — enum задан на стороне ЛК

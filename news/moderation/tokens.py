@@ -29,3 +29,26 @@ def read_token(token: str) -> dict:
         key=settings.MODERATION_SIGNING_KEY,
         max_age=settings.MODERATION_TOKEN_MAX_AGE_SECONDS,
     )
+
+
+# Форма срочной ручной публикации новости Клуба (13.09.2026, news/moderation/manual_publish.py)
+# — отдельная соль: токен не привязан к конкретной Article (её ещё не существует на момент
+# перехода по ссылке, форма её создаёт), поэтому не может использовать make_token/read_token
+# выше (у тех payload обязательно содержит article_id существующей записи). Разная соль также
+# не даёт токену формы случайно провалидироваться как токен действия модерации, и наоборот.
+_MANUAL_PUBLISH_SALT = "news.manual_publish"
+
+
+def make_manual_publish_token() -> str:
+    return signing.dumps({"purpose": "manual_publish"}, salt=_MANUAL_PUBLISH_SALT, key=settings.MODERATION_SIGNING_KEY)
+
+
+def read_manual_publish_token(token: str) -> dict:
+    """Бросает signing.BadSignature/signing.SignatureExpired — обрабатывается в view, как и
+    read_token()."""
+    return signing.loads(
+        token,
+        salt=_MANUAL_PUBLISH_SALT,
+        key=settings.MODERATION_SIGNING_KEY,
+        max_age=settings.MODERATION_TOKEN_MAX_AGE_SECONDS,
+    )

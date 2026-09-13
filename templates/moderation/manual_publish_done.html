@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Готово</title></head>
+<body style="font-family:sans-serif;max-width:640px;margin:40px auto;">
+  <h2>Принято</h2>
+  {% if skip_llm %}
+    <p>Новость «{{ article.title }}» опубликована как есть, без LLM-форматирования — сразу в
+    Telegram-канал и в ЛК.</p>
+  {% else %}
+    <p>Новость «{{ article.title }}» принята — сейчас проходит LLM-форматирование, публикация
+    в Telegram-канал и в ЛК появится в течение минуты.</p>
+  {% endif %}
+</body>
+</html>
